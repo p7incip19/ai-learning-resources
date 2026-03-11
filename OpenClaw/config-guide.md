@@ -1,6 +1,13 @@
 # OpenClaw 配置系统完全指南
 
 > **注意**：本文档已脱敏处理，所有敏感信息（模型名称、文件路径、账号标识等）均使用示例值。
+> 
+> **版本**：基于 OpenClaw 2026.3.8
+> 
+> **参考来源**：
+> - 官方文档：https://docs.openclaw.ai
+> - CLI 帮助：`openclaw --help`, `openclaw config --help`
+> - 源码分析：实际配置文件字段验证
 
 ---
 
@@ -19,23 +26,23 @@
 
 ### 1.1 配置文件位置
 
-主配置文件位于 `~/.claw.json`，采用 JSON 格式。
+主配置文件位于 `~/.claw.json`（也写作 `~/.openclaw/openclaw.json`）。
 
-openclaw/open### 1.2 顶层结构
+### 1.2 顶层结构 (15个字段)
 
 ```json
 {
   "meta": { },           // 元信息
   "auth": { },           // 认证配置
-  "models": { },          // 模型配置
-  "agents": { },          // Agent 列表
-  "bindings": [ ],        // 消息路由
-  "channels": { },        // 通道配置
-  "gateway": { },         // 网关配置
-  "session": { },         // 会话配置
-  "plugins": { },         // 插件配置
-  "tools": { },          // 工具配置
-  "commands": { },        // 命令配置
+  "models": { },         // 模型配置
+  "agents": { },         // Agent 列表
+  "bindings": [ ],       // 消息路由
+  "channels": { },       // 通道配置
+  "gateway": { },        // 网关配置
+  "session": { },        // 会话配置
+  "plugins": { },        // 插件配置
+  "tools": { },         // 工具配置
+  "commands": { },       // 命令配置
   "messages": { },       // 消息配置
   "browser": { },        // 浏览器配置
   "web": { },            // Web 配置
@@ -50,25 +57,39 @@ openclaw/open### 1.2 顶层结构
 ### 2.1 Agent（代理）
 
 **定义**：一个完整的 AI 代理实例，拥有独立的：
-- Workspace（工作目录）
-- State 目录（认证、模型注册表）
-- Session 存储（聊天历史）
+- **Workspace** - 文件存储目录
+- **AgentDir/State 目录** - 认证配置、模型注册表
+- **Session 存储** - 聊天历史
 
-**核心作用**：处理用户消息并生成响应。
+**示例目录结构**：
+```
+~/.claw/
+├── agents/
+│   ├── main/
+│   │   ├── agent/           # state 目录
+│   │   │   └── auth-profiles.json
+│   │   └── sessions/        # 会话历史 (*.jsonl)
+│   └── pulse/
+│       ├── agent/
+│       └── sessions/
+├── workspace/               # main agent 的工作目录
+├── workspace-pulse/         # pulse agent 的工作目录
+└── openclaw.json           # 主配置文件
+```
 
 ### 2.2 Channel（通道）
 
 **定义**：消息输入/输出的渠道类型。
 
 **支持的通道**：
-- Telegram
-- WhatsApp
-- Discord
-- Signal
-- Feishu（飞书）
-- Web
-
-每个 Channel 可配置多个 Account（账号）。
+| 通道 | 说明 |
+|------|------|
+| `telegram` | Telegram Bot |
+| `whatsapp` | WhatsApp Business |
+| `discord` | Discord Bot |
+| `signal` | Signal |
+| `feishu` | 飞书 |
+| `web` | Web Chat |
 
 ### 2.3 Session（会话）
 
@@ -80,12 +101,14 @@ agent:<agentId>:<channel>:<accountId>:<peerKind>:<peerId>
 ```
 
 **示例**：
-- `agent:alpha:telegram:account1:user:123456` - 私聊
-- `agent:beta:telegram:account1:group:-987654321` - 群组
+- `agent:main:telegram:nora:user:123456789` - 私聊
+- `agent:pulse:telegram:default:group:-987654321` - 群组
 
 ### 2.4 Binding（绑定/路由）
 
 **定义**：消息路由规则，决定由哪个 Agent 处理消息。
+
+**匹配优先级**：从上到下匹配，第一个匹配的 binding 生效。
 
 ---
 
@@ -93,52 +116,81 @@ agent:<agentId>:<channel>:<accountId>:<peerKind>:<peerId>
 
 ### 3.1 agents（Agent 配置）
 
+**位置**：`agents`
+
+**说明**：定义系统中所有的 Agent 实例。
+
 ```json
 {
   "agents": {
     "defaults": {
       "model": {
-        "primary": "minimax/MiniMax-M2.1"  // 主模型
+        "primary": "minimax/MiniMax-M2.1"
       },
-      "workspace": "/path/to/workspace",    // 默认工作目录
+      "models": {
+        "minimax/MiniMax-M2.1": {
+          "alias": "Minimax"
+        }
+      },
+      "workspace": "/path/to/workspace",
       "compaction": {
-        "mode": "safeguard"                 // 内存压缩模式
+        "mode": "safeguard"
       },
-      "maxConcurrent": 4                   // 最大并发数
+      "maxConcurrent": 4,
+      "subagents": {
+        "maxConcurrent": 8
+      }
     },
     "list": [
       {
-        "id": "alpha",                      // Agent 唯一标识
-        "name": "alpha",                     // 显示名称
-        "workspace": "/path/to/workspace",  // 独立工作目录（可选）
-        "agentDir": "/path/to/state"        // 独立状态目录（可选）
+        "id": "main",
+        "name": "main"
+      },
+      {
+        "id": "pulse",
+        "name": "pulse",
+        "workspace": "/path/to/workspace-pulse",
+        "agentDir": "/path/to/agents/pulse/agent"
       }
     ]
   }
 }
 ```
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `defaults.model.primary` | string | 默认使用的模型 |
-| `defaults.workspace` | string | 默认工作目录 |
-| `defaults.compaction.mode` | string | 内存压缩模式：`safeguard` / `eager` |
-| `defaults.maxConcurrent` | number | 最大并发会话数 |
-| `list[].id` | string | **必填** Agent 唯一标识 |
-| `list[].name` | string | 显示名称 |
-| `list[].workspace` | string | 独立工作目录 |
-| `list[].agentDir` | string | 独立状态目录 |
+| 字段 | 类型 | 说明 | 示例值 |
+|------|------|------|--------|
+| `defaults.model.primary` | string | 默认主模型 | `minimax/MiniMax-M2.1` |
+| `defaults.models.<modelId>.alias` | string | 模型别名 | `"Minimax"` |
+| `defaults.workspace` | string | 默认工作目录 | `/home/user/workspace` |
+| `defaults.compaction.mode` | string | 内存压缩模式 | `safeguard`, `eager` |
+| `defaults.maxConcurrent` | number | 最大并发会话数 | `4` |
+| `defaults.subagents.maxConcurrent` | number | 子 Agent 最大并发 | `8` |
+| `list[].id` | string | **必填** Agent 唯一标识 | `"main"`, `"pulse"` |
+| `list[].name` | string | 显示名称 | `"pulse"` |
+| `list[].workspace` | string | 独立工作目录 | `"/path/to/workspace"` |
+| `list[].agentDir` | string | 独立状态目录 | `"/path/to/agent/state"` |
+
+**Feature 映射**：
+- `compaction.mode`: 控制内存压缩策略，影响长期运行的会话内存使用
+- `maxConcurrent`: 限制同时处理的会话数，防止资源耗尽
+- `subagents.maxConcurrent`: 限制子 Agent 并发数
+
+---
 
 ### 3.2 bindings（消息路由）
+
+**位置**：`bindings`
+
+**说明**：定义消息如何路由到不同的 Agent。
 
 ```json
 {
   "bindings": [
     {
-      "agentId": "alpha",
+      "agentId": "main",
       "match": {
         "channel": "telegram",
-        "accountId": "account1",
+        "accountId": "default",
         "peer": {
           "kind": "group",
           "id": "-1234567890"
@@ -149,31 +201,68 @@ agent:<agentId>:<channel>:<accountId>:<peerKind>:<peerId>
 }
 ```
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `agentId` | string | 目标 Agent ID，必须在 `agents.list` 中定义 |
-| `match.channel` | string | 通道类型：`telegram`, `whatsapp`, `discord` 等 |
-| `match.accountId` | string | 账号 ID，对应 `channels.<channel>.accounts` |
-| `match.peer.kind` | string | 对端类型：`user`（私聊）, `group`（群组）, `channel`（频道） |
-| `match.peer.id` | string | 对端 ID（群组/频道为数字 ID） |
+| 字段 | 类型 | 说明 | 示例值 |
+|------|------|------|--------|
+| `agentId` | string | **必填** 目标 Agent ID | `"main"`, `"pulse"` |
+| `match.channel` | string | 通道类型 | `"telegram"`, `"whatsapp"`, `"discord"` |
+| `match.accountId` | string | 账号 ID | `"default"`, `"nora"` |
+| `match.peer.kind` | string | 对端类型 | `"user"`（私聊）, `"group"`（群组）, `"channel"`（频道） |
+| `match.peer.id` | string | 对端 ID | `"-1234567890"`（群组 ID） |
 
-**路由优先级**：从上到下匹配，第一个匹配的 binding 生效。
+**Feature 映射**：
+- 消息路由：接收消息 → 解析 channel/account/peer → 匹配 binding → 路由到对应 Agent
+- 支持一个消息同时匹配多个 binding 时按顺序优先处理
+
+---
 
 ### 3.3 channels（通道配置）
+
+**位置**：`channels.<channelName>`
+
+**说明**：配置每个通道的行为和政策。
+
+#### 3.3.1 Telegram 配置示例
 
 ```json
 {
   "channels": {
     "telegram": {
+      "markdown": {
+        "tables": "code"
+      },
       "enabled": true,
-      "dmPolicy": "pairing",          // DM 策略
-      "groupPolicy": "open",           // 群组策略
-      "streaming": "partial",           // 流式输出
+      "commands": {
+        "native": true,
+        "nativeSkills": true
+      },
+      "configWrites": true,
+      "dmPolicy": "pairing",
+      "replyToMode": "all",
+      "groups": {
+        "*": {
+          "requireMention": false
+        }
+      },
+      "allowFrom": ["*"],
+      "groupPolicy": "open",
+      "chunkMode": "newline",
+      "streaming": "partial",
+      "blockStreaming": false,
+      "actions": {
+        "reactions": true,
+        "sendMessage": true,
+        "poll": true,
+        "deleteMessage": true,
+        "sticker": true
+      },
+      "reactionNotifications": "own",
+      "reactionLevel": "extensive",
       "accounts": {
-        "account1": {
-          "botToken": "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11",
+        "default": {
+          "botToken": "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz",
           "dmPolicy": "pairing",
-          "groupPolicy": "open"
+          "groupPolicy": "open",
+          "streaming": "partial"
         }
       }
     }
@@ -181,98 +270,148 @@ agent:<agentId>:<channel>:<accountId>:<peerKind>:<peerId>
 }
 ```
 
-#### 通道级配置
+#### 3.3.2 通道级字段说明
+
+| 字段 | 类型 | 说明 | 示例值 |
+|------|------|------|--------|
+| `enabled` | boolean | 是否启用该通道 | `true` |
+| `dmPolicy` | string | DM 策略 | `pairing`, `allowlist`, `blocklist`, `all` |
+| `groupPolicy` | string | 群组策略 | `open`, `allowlist`, `blocklist` |
+| `streaming` | string | 流式输出模式 | `full`, `partial`, `none` |
+| `blockStreaming` | boolean | 是否阻止流式输出 | `false` |
+| `replyToMode` | string | 回复模式 | `all`, `thread`, `channel` |
+| `chunkMode` | string | 分块模式 | `newline`, `sentence`, `word` |
+| `requireMention` | boolean | 群组中是否需要 @ | `false` |
+| `allowFrom` | array | 允许的消息来源 | `["*"]`, `["user1", "user2"]` |
+| `markdown.tables` | string | Markdown 表格格式 | `code`, `unicode` |
+| `commands.native` | boolean | 启用原生命令 | `true` |
+| `commands.nativeSkills` | boolean | 启用 Skill 命令 | `true` |
+| `configWrites` | boolean | 允许配置写入 | `true` |
+| `actions.reactions` | boolean | 启用表情反应 | `true` |
+| `actions.sendMessage` | boolean | 启用发送消息 | `true` |
+| `actions.poll` | boolean | 启用投票 | `true` |
+| `actions.deleteMessage` | boolean | 启用删除消息 | `true` |
+| `actions.sticker` | boolean | 启用贴纸 | `true` |
+| `reactionNotifications` | string | 反应通知范围 | `own`, `all`, `none` |
+| `reactionLevel` | string | 反应级别 | `extensive`, `minimal` |
+
+#### 3.3.3 账号级配置 (accounts.<accountId>)
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `enabled` | boolean | 是否启用该通道 |
-| `dmPolicy` | string | DM 策略 |
-| `groupPolicy` | string | 群组策略 |
-| `streaming` | string | 流式输出模式 |
+| `botToken` | string | Telegram/Discord Bot Token |
+| `phoneNumber` | string | WhatsApp 电话号码 |
+| `dmPolicy` | string | 该账号的 DM 策略（覆盖全局） |
+| `groupPolicy` | string | 该账号的群组策略（覆盖全局） |
+| `streaming` | string | 该账号的流式输出模式（覆盖全局） |
 
-#### 策略说明
+**Feature 映射**：
+- `dmPolicy` / `groupPolicy`: 控制谁能与 Agent 对话
+- `streaming`: 控制响应如何发送（实时 vs 完整后发送）
+- `actions`: 控制 Agent 可以在通道中执行哪些操作
+- `reactionLevel`: 控制反应的使用频率
 
-**dmPolicy / groupPolicy**：
-- `all` - 允许所有人
-- `allowlist` - 仅白名单
-- `blocklist` - 黑名单
-- `pairing` - 配对模式（首次对话需确认）
-- `open` - 开放模式
-
-**streaming**：
-- `full` - 完整流式输出
-- `partial` - 分段输出
-- `none` - 非流式
-
-#### 账号级配置 (accounts)
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `botToken` | string | Bot Token（Telegram/Discord） |
-| `phoneNumber` | string | 电话号码（WhatsApp） |
-| `dmPolicy` | string | 该账号的 DM 策略 |
-| `groupPolicy` | string | 该账号的群组策略 |
+---
 
 ### 3.4 gateway（网关配置）
+
+**位置**：`gateway`
+
+**说明**：配置 Gateway 的网络和行为。
 
 ```json
 {
   "gateway": {
-    "http": {
-      "host": "0.0.0.0",
-      "port": 8080
+    "port": 8080,
+    "mode": "local",
+    "bind": "loopback",
+    "auth": {
+      "mode": "token",
+      "token": "testtest1",
+      "password": "",
+      "rateLimit": {
+        "exemptLoopback": false
+      }
     },
-    "publicUrl": "https://example.com",
-    "cors": {
-      "enabled": true,
-      "allowOrigins": ["*"]
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
     }
   }
 }
 ```
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `http.host` | string | HTTP 监听地址 |
-| `http.port` | number | HTTP 监听端口 |
-| `publicUrl` | string | 公开访问 URL |
-| `cors.enabled` | boolean | 是否启用 CORS |
-| `cors.allowOrigins` | array | 允许的跨域来源 |
+| 字段 | 类型 | 说明 | 示例值 |
+|------|------|------|--------|
+| `port` | number | 监听端口 | `8080`, `18789` |
+| `mode` | string | 运行模式 | `local`, `service` |
+| `bind` | string | 绑定地址 | `loopback`, `0.0.0.0` |
+| `auth.mode` | string | 认证模式 | `token`, `password` |
+| `auth.token` | string | 认证 Token | - |
+| `auth.rateLimit.exemptLoopback` | boolean | 跳过本地速率限制 | `false` |
+| `tailscale.mode` | string | Tailscale 模式 | `off`, `login`, `serve` |
+| `tailscale.resetOnExit` | boolean | 退出时重置 | `false` |
+
+**Feature 映射**：
+- `port` / `bind`: 网络监听配置
+- `auth`: 访问控制
+- `tailscale`: 远程访问配置
+
+---
 
 ### 3.5 session（会话配置）
+
+**位置**：`session`
+
+**说明**：配置会话行为。
 
 ```json
 {
   "session": {
-    "dmScope": "per-channel-peer",
-    "systemPrompt": "你是一个助手。",
-    "maxMessages": 100
+    "dmScope": "per-channel-peer"
   }
 }
 ```
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `dmScope` | string | DM 会话作用域 |
-| `systemPrompt` | string | 系统提示词 |
-| `maxMessages` | number | 最大消息数 |
+| 字段 | 类型 | 说明 | 示例值 |
+|------|------|------|--------|
+| `dmScope` | string | DM 会话作用域 | `per-channel-peer`, `per-account-peer`, `global` |
+
+**Feature 映射**：
+- `dmScope`: 控制私聊会话是否按通道/账号隔离
+
+---
 
 ### 3.6 models（模型配置）
+
+**位置**：`models`
+
+**说明**：配置模型提供商和模型列表。
 
 ```json
 {
   "models": {
-    "defaults": {
-      "provider": "minimax",
-      "primary": "MiniMax-M2.1"
-    },
+    "mode": "merge",
     "providers": {
       "minimax": {
-        "apiKey": "sk-xxx",
-        "endpoint": "https://api.minimax.chat/v1"
-      },
-      "openai": {
-        "apiKey": "sk-xxx"
+        "baseUrl": "https://api.minimax.io/anthropic",
+        "api": "anthropic-messages",
+        "models": [
+          {
+            "id": "MiniMax-M2.1",
+            "name": "MiniMax M2.1",
+            "reasoning": false,
+            "input": ["text"],
+            "cost": {
+              "input": 15,
+              "output": 60,
+              "cacheRead": 2,
+              "cacheWrite": 10
+            },
+            "contextWindow": 200000,
+            "maxTokens": 8192
+          }
+        ]
       }
     }
   }
@@ -281,21 +420,47 @@ agent:<agentId>:<channel>:<accountId>:<peerKind>:<peerId>
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `defaults.provider` | string | 默认模型提供商 |
-| `defaults.primary` | string | 默认模型名称 |
-| `providers.<name>.apiKey` | string | API Key |
-| `providers.<name>.endpoint` | string | API 端点 |
+| `mode` | string | 模式：`merge` 或 `replace` |
+| `providers.<name>.baseUrl` | string | API 基础 URL |
+| `providers.<name>.api` | string | API 类型 |
+| `providers.<name>.models[].id` | string | 模型 ID |
+| `providers.<name>.models[].name` | string | 模型显示名称 |
+| `providers.<name>.models[].reasoning` | boolean | 是否支持推理 |
+| `providers.<name>.models[].input` | array | 输入类型 |
+| `providers.<name>.models[].cost.*` | number | 成本（每百万 token） |
+| `providers.<name>.models[].contextWindow` | number | 上下文窗口大小 |
+| `providers.<name>.models[].maxTokens` | number | 最大输出 tokens |
+
+**Feature 映射**：
+- 模型选择：Agent 根据配置选择使用哪个模型
+- 成本计算：用于追踪使用成本
+
+---
 
 ### 3.7 plugins（插件配置）
+
+**位置**：`plugins`
+
+**说明**：配置插件系统。
 
 ```json
 {
   "plugins": {
-    "enabled": ["feishu", "browser"],
-    "feishu": {
-      "enabled": true,
-      "appId": "cli_xxx",
-      "appSecret": "xxx"
+    "allow": ["whatsapp", "feishu", "telegram"],
+    "entries": {
+      "feishu": {
+        "enabled": true
+      },
+      "whatsapp": {
+        "enabled": true
+      }
+    },
+    "installs": {
+      "feishu": {
+        "source": "npm",
+        "spec": "@m1heng-clawd/feishu",
+        "version": "0.1.16"
+      }
     }
   }
 }
@@ -303,45 +468,128 @@ agent:<agentId>:<channel>:<accountId>:<peerKind>:<peerId>
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `enabled` | array | 启用的插件列表 |
-| `<pluginName>.enabled` | boolean | 是否启用 |
-| `<pluginName>.*` | object | 插件特定配置 |
+| `allow` | array | 允许的插件列表 |
+| `entries.<name>.enabled` | boolean | 是否启用 |
+| `installs.<name>.source` | string | 安装来源：`npm` |
+| `installs.<name>.spec` | string | 包规范 |
+| `installs.<name>.version` | string | 版本号 |
 
-### 3.8 cron（定时任务）
+**Feature 映射**：
+- 插件扩展：系统功能通过插件扩展
+- 动态加载：插件可以在运行时加载
+
+---
+
+### 3.8 tools（工具配置）
+
+**位置**：`tools`
+
+**说明**：配置工具系统。
 
 ```json
 {
-  "cron": [
-    {
-      "id": "uuid",
-      "name": "任务名称",
-      "enabled": true,
-      "schedule": {
-        "kind": "cron",
-        "expr": "0 7 * * *",
-        "tz": "Asia/Hong_Kong"
-      },
-      "sessionTarget": "alpha",
-      "payload": {
-        "kind": "systemEvent",
-        "text": "任务消息内容"
-      },
-      "delivery": {
-        "mode": "none"
-      }
-    }
-  ]
+  "tools": {
+    "profile": "coding"
+  }
 }
 ```
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `schedule.kind` | string | 调度类型：`cron` |
-| `schedule.expr` | string | Cron 表达式 |
-| `schedule.tz` | string | 时区 |
-| `sessionTarget` | string | 目标 Session |
-| `payload.kind` | string | 负载类型 |
-| `delivery.mode` | string | 投递模式 |
+| 字段 | 类型 | 说明 | 示例值 |
+|------|------|------|--------|
+| `profile` | string | 工具配置集 | `coding`, `default` |
+
+**Feature 映射**：
+- 控制哪些工具可用
+
+---
+
+### 3.9 commands（命令配置）
+
+**位置**：`commands`
+
+**说明**：配置命令系统。
+
+```json
+{
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto",
+    "restart": true,
+    "ownerDisplay": "raw"
+  }
+}
+```
+
+| 字段 | 类型 | 说明 | 示例值 |
+|------|------|------|--------|
+| `native` | string | 原生命令 | `auto`, `on`, `off` |
+| `nativeSkills` | string | Skill 命令 | `auto`, `on`, `off` |
+| `restart` | boolean | 允许重启 | `true` |
+| `ownerDisplay` | string | 所有者显示 | `raw`, `name` |
+
+---
+
+### 3.10 messages（消息配置）
+
+**位置**：`messages`
+
+**说明**：配置消息处理。
+
+```json
+{
+  "messages": {
+    "ackReactionScope": "group-mentions"
+  }
+}
+```
+
+| 字段 | 类型 | 说明 | 示例值 |
+|------|------|------|--------|
+| `ackReactionScope` | string | 确认反应范围 | `group-mentions`, `all`, `none` |
+
+---
+
+### 3.11 browser（浏览器配置）
+
+**位置**：`browser`
+
+**说明**：配置浏览器工具。
+
+```json
+{
+  "browser": {
+    "attachOnly": true
+  }
+}
+```
+
+| 字段 | 类型 | 说明 | 示例值 |
+|------|------|------|--------|
+| `attachOnly` | boolean | 仅附加模式 | `true` |
+
+---
+
+### 3.12 web（Web 配置）
+
+**位置**：`web`
+
+**说明**：配置 Web 功能。
+
+```json
+{
+  "web": {
+    "enabled": true
+  }
+}
+```
+
+---
+
+### 3.13 wizard（向导配置）
+
+**位置**：`wizard`
+
+**说明**：配置安装向导。
 
 ---
 
@@ -359,35 +607,42 @@ agent:<agentId>:<channel>:<accountId>:<peerKind>:<peerId>
       "model": {
         "primary": "minimax/MiniMax-M2.1"
       },
+      "models": {
+        "minimax/MiniMax-M2.1": {
+          "alias": "Minimax"
+        }
+      },
       "workspace": "/home/user/workspace",
       "compaction": {
         "mode": "safeguard"
       },
-      "maxConcurrent": 4
+      "maxConcurrent": 4,
+      "subagents": {
+        "maxConcurrent": 8
+      }
     },
     "list": [
       {
-        "id": "alpha",
-        "name": "alpha"
+        "id": "main",
+        "name": "main"
       },
       {
-        "id": "beta",
-        "name": "beta",
-        "workspace": "/home/user/workspace-beta",
-        "agentDir": "/home/user/.openclaw/agents/beta/agent"
+        "id": "pulse",
+        "name": "pulse",
+        "workspace": "/home/user/workspace-pulse"
       }
     ]
   },
   "bindings": [
     {
-      "agentId": "alpha",
+      "agentId": "main",
       "match": {
         "channel": "telegram",
         "accountId": "default"
       }
     },
     {
-      "agentId": "beta",
+      "agentId": "pulse",
       "match": {
         "channel": "telegram",
         "accountId": "default",
@@ -404,53 +659,40 @@ agent:<agentId>:<channel>:<accountId>:<peerKind>:<peerId>
       "dmPolicy": "pairing",
       "groupPolicy": "open",
       "streaming": "partial",
+      "actions": {
+        "reactions": true,
+        "sendMessage": true
+      },
       "accounts": {
         "default": {
           "botToken": "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
         }
       }
-    },
-    "whatsapp": {
-      "enabled": false,
-      "dmPolicy": "allowlist",
-      "accounts": {
-        "work": {
-          "phoneNumber": "+1234567890"
-        }
-      }
     }
   },
   "gateway": {
-    "http": {
-      "host": "0.0.0.0",
-      "port": 8080
-    },
-    "publicUrl": "https://myagent.example.com"
+    "port": 8080,
+    "mode": "local",
+    "bind": "loopback"
   },
   "session": {
-    "dmScope": "per-channel-peer",
-    "maxMessages": 100
+    "dmScope": "per-channel-peer"
   },
   "models": {
-    "defaults": {
-      "provider": "minimax",
-      "primary": "MiniMax-M2.1"
-    },
+    "mode": "merge",
     "providers": {
       "minimax": {
-        "apiKey": "sk-xxxxx"
+        "baseUrl": "https://api.minimax.io/anthropic",
+        "api": "anthropic-messages",
+        "models": [
+          {
+            "id": "MiniMax-M2.1",
+            "name": "MiniMax M2.1",
+            "cost": { "input": 15, "output": 60 },
+            "contextWindow": 200000
+          }
+        ]
       }
-    }
-  },
-  "plugins": {
-    "enabled": ["browser", "feishu"],
-    "browser": {
-      "enabled": true
-    },
-    "feishu": {
-      "enabled": true,
-      "appId": "cli_xxxxx",
-      "appSecret": "xxxxx"
     }
   }
 }
@@ -464,26 +706,25 @@ agent:<agentId>:<channel>:<accountId>:<peerKind>:<peerId>
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      Gateway (网关)                         │
+│                      Gateway (网关)                          │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │              Bindings (路由规则)                    │   │
 │  │   message → channel → account → peer → agent       │   │
 │  └─────────────────────────────────────────────────────┘   │
 └──────────────────────────┬──────────────────────────────────┘
-                           │
-         ┌─────────────────┼─────────────────┐
-         │                 │                 │
-         ▼                 ▼                 ▼
-    ┌─────────┐       ┌─────────┐       ┌─────────┐
-    │ Agent α │       │ Agent β │       │ Agent γ │
-    │ (alpha) │       │ (beta)  │       │ (gamma) │
-    └────┬────┘       └────┬────┘       └────┬────┘
-         │                 │                 │
-         ▼                 ▼                 ▼
-    ┌─────────┐       ┌─────────┐       ┌─────────┐
-    │ Session │       │ Session │       │ Session │
-    │ 列表    │       │ 列表    │       │ 列表    │
-    └─────────┘       └─────────┘       └─────────┘
+                          │
+        ┌─────────────────┼─────────────────┐
+        ▼                 ▼                 ▼
+   ┌─────────┐       ┌─────────┐       ┌─────────┐
+   │ Agent α │       │ Agent β │       │ Agent γ │
+   │ (main)  │       │ (pulse) │       │         │
+   └────┬────┘       └────┬────┘       └────┬────┘
+        │                 │                 │
+        ▼                 ▼                 ▼
+   ┌─────────┐       ┌─────────┐       ┌─────────┐
+   │ Session │       │ Session │       │ Session │
+   │ 列表    │       │ 列表    │       │ 列表    │
+   └─────────┘       └─────────┘       └─────────┘
 ```
 
 ### 5.2 消息流转流程
@@ -527,7 +768,7 @@ agent:<agentId>:<channel>:<accountId>:<peerKind>:<peerId>
 创建 Session
      │
      ▼
-存储在 ~/.openclaw/agents/<agentId>/sessions/
+存储在 ~/.claw/agents/<agentId>/sessions/
      │
      ├── session-001.jsonl
      ├── session-002.jsonl
@@ -568,13 +809,16 @@ agent:<agentId>:<channel>:<accountId>:<peerKind>:<peerId>
 | 问题 | 原因 | 解决 |
 |------|------|------|
 | 消息未路由到正确 Agent | bindings 顺序或匹配条件错误 | 检查 bindings 配置 |
-| Cron 任务超时 | sessionTarget 无效 | 确认为已定义的 agent |
+| Cron 任务超时 | sessionTarget 设置为不存在的 agent | 确认为已定义的 agent（如 `main`） |
 | Channel 无法接收消息 | 账号配置错误 | 检查 botToken 等 |
 | 模型调用失败 | API Key 配置错误 | 检查 models.providers |
 
 ### 6.2 调试命令
 
 ```bash
+# 查看当前版本
+openclaw --version
+
 # 查看 bindings
 openclaw bindings list
 
@@ -589,31 +833,35 @@ openclaw cron list
 
 # 查看 gateway 状态
 openclaw gateway status
+
+# 验证配置
+openclaw config validate
 ```
 
 ---
 
 ## 附录：A. 字段索引表
 
-| 顶层字段 | 说明 |
-|----------|------|
-| `meta` | 元信息 |
-| `auth` | 认证配置 |
-| `models` | 模型配置 |
-| `agents` | Agent 列表 |
-| `bindings` | 消息路由 |
-| `channels` | 通道配置 |
-| `gateway` | 网关配置 |
-| `session` | 会话配置 |
-| `plugins` | 插件配置 |
-| `tools` | 工具配置 |
-| `commands` | 命令配置 |
-| `messages` | 消息配置 |
-| `browser` | 浏览器配置 |
-| `web` | Web 配置 |
-| `wizard` | 向导配置 |
+| 顶层字段 | 说明 | 章节 |
+|----------|------|------|
+| `meta` | 元信息 | - |
+| `auth` | 认证配置 | - |
+| `models` | 模型配置 | 3.6 |
+| `agents` | Agent 列表 | 3.1 |
+| `bindings` | 消息路由 | 3.2 |
+| `channels` | 通道配置 | 3.3 |
+| `gateway` | 网关配置 | 3.4 |
+| `session` | 会话配置 | 3.5 |
+| `plugins` | 插件配置 | 3.7 |
+| `tools` | 工具配置 | 3.8 |
+| `commands` | 命令配置 | 3.9 |
+| `messages` | 消息配置 | 3.10 |
+| `browser` | 浏览器配置 | 3.11 |
+| `web` | Web 配置 | 3.12 |
+| `wizard` | 向导配置 | 3.13 |
 
 ---
 
 *文档版本: 2026-03-12*
-*基于 OpenClaw 官方文档*
+*基于 OpenClaw 2026.3.8 官方文档和源码分析*
+*参考来源：https://docs.openclaw.ai, CLI 帮助文档*
